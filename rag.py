@@ -40,6 +40,7 @@ def format_docs(docs):
 
 
 
+
 def fetch_transcript(video_id):
     api_key = os.getenv("YOUTUBE_TRANSCRIPT_API_KEY")
 
@@ -49,30 +50,26 @@ def fetch_transcript(video_id):
         )
 
     try:
-        response = requests.get(
-            "https://getyoutubetranscript.com/api/v1/transcript",
-            params={"v": video_id, "language": "en"},
+        response = requests.post(
+            "https://www.youtubetranscript.dev/api/v2/transcribe",
             headers={
                 "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
                 "Accept": "application/json"
             },
-            timeout=45
+            json={
+                "video": video_id,
+                "mode": "captions_only",
+                "language": "en"
+            },
+            timeout=60
         )
     except requests.RequestException as exc:
         raise RuntimeError(
             f"Could not connect to transcript API: {exc}"
         ) from exc
 
-    content_type = response.headers.get("Content-Type", "")
-
     if response.status_code != 200:
-        if "text/html" in content_type:
-            raise RuntimeError(
-                "Transcript provider returned an HTML security challenge. "
-                "The request is being blocked before reaching its API. "
-                "Contact provider support or use another transcript provider."
-            )
-
         raise RuntimeError(
             f"Transcript API error {response.status_code}: "
             f"{response.text[:300]}"
@@ -82,22 +79,19 @@ def fetch_transcript(video_id):
         result = response.json()
     except ValueError as exc:
         raise RuntimeError(
-            "Transcript API returned an invalid JSON response."
+            "Transcript API returned invalid JSON."
         ) from exc
 
-    if not result.get("success"):
+    transcript_data = result.get("data", {}).get("transcript", {})
+    transcript = transcript_data.get("text", "")
+
+    if result.get("status") != "completed" or not transcript.strip():
         raise RuntimeError(
-            f"Transcript unavailable: "
-            f"{result.get('message', result.get('code', 'Unknown error'))}"
+            "Transcript is unavailable. The video may lack accessible "
+            "captions, or transcription may still be processing."
         )
 
-    transcript = result.get("data", {}).get("transcript")
-
-    if not isinstance(transcript, str) or not transcript.strip():
-        raise RuntimeError("No transcript was returned for this video.")
-
     return transcript
-
 
 
 @st.cache_resource
